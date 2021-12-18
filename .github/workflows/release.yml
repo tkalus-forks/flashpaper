@@ -1,0 +1,46 @@
+name: Create and publish a container image
+
+on:
+  push:
+    branches:
+      - dev
+
+env:
+  GHCR_IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-push-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Build Container Image
+        id: build_image
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.GHCR_IMAGE_NAME }}
+          tags: ${{ github.sha }}
+          containerfiles: |
+            ./Dockerfile
+
+      - name: Log in to ghcr.io
+        id: login_ghcr
+        uses: redhat-actions/podman-login@v1
+        with:
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+          registry: ${{ env.GHCR_IMAGE_NAME }}
+
+      - name: Push To ECR
+        uses: redhat-actions/push-to-registry@v2
+        id: push_ecr
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: ${{ steps.build_image.outputs.tags }}

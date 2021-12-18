@@ -8,9 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"crypto/tls"
 	"errors"
-	"flag"
 	"fmt"
 	"html"
 	"io"
@@ -21,8 +19,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/crypto/acme/autocert"
 )
 
 // MAXUPLOADSIZE of 10mb
@@ -236,9 +232,6 @@ func shareable(id string, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 
 	proto := "https"
-	if r.TLS == nil {
-		proto = "http"
-	}
 
 	ret := fmt.Sprintf(lackofstyle+shareform+endofstyle, int(MAXHOURSTOKEEP), proto, r.Host, id)
 	fmt.Fprint(w, ret)
@@ -404,75 +397,20 @@ func main() {
 
 	fmt.Println(ascii)
 
-	realm := "Please enter a username and password."
-
 	//set up the map that stores secrets
 	secrets := smap{}
-
-	//set up cert manager for ssl certs
-	certManager := autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: autocert.HostWhitelist(""), //Your domain here
-		Cache:      autocert.DirCache("certs"), //Folder for storing certificates
-	}
 
 	//launch the janitor to remove secrets that haven't been retrieved
 	go janitor(secrets)
 
-	// Setup the flags.
-	// value = default when not specified.
-	var auth = flag.String("auth", "", "The auth filename.")
-	var token = flag.String("token", "", "The token link.")
-	var autocert = flag.Bool("autocert", false, "Whether to use Autocert or not.")
-	flag.Parse()
+	fmt.Println("Authentication: Disabled.")
+	http.HandleFunc("/", contextify(secretHandler, secrets))
 
-	// Check whether a token was specified. If not, it will get an empty string which is fine.
-	CANARYTOKEN = *token
-
-	if *token == "" {
-		fmt.Println("Token: False.")
-	} else {
-		fmt.Println("Token: True.")
+	fmt.Println("AutoCert: False, TLS: False")
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		fmt.Printf("main(): %s\n", err)
 	}
-
-	// Auth needs to be used.
-	if *auth != "" {
-		AUTH = true
-		AUTHFILENAME = *auth
-		fmt.Println("Authentication: Enabled.")
-		http.HandleFunc("/", authHandler(contextify(secretHandler, secrets), realm))
-
-	} else {
-		fmt.Println("Authentication: Disabled.")
-		http.HandleFunc("/", contextify(secretHandler, secrets))
-
-	}
-
-	if *autocert {
-		fmt.Println("AutoCert: True.")
-		server := &http.Server{
-			Addr: ":8443",
-			TLSConfig: &tls.Config{
-				GetCertificate: certManager.GetCertificate,
-			},
-		}
-
-		go http.ListenAndServe(":http", certManager.HTTPHandler(nil))
-		err := server.ListenAndServeTLS("", "") //Key and cert are coming from Let's Encrypt
-		if err != nil {
-			fmt.Printf("main(): %s\n", err)
-		}
-
-	} else {
-		fmt.Println("AutoCert: False.")
-		//Key and cert are coming from Let's Encrypt.
-		err := http.ListenAndServeTLS(":8443", "server.crt", "server.key", nil)
-		if err != nil {
-			fmt.Printf("main(): %s\n", err)
-			fmt.Printf("Errors usually mean you don't have the required server.crt or server.key files.\n")
-		}
-	}
-
 }
 
 //That's right friend, all the terrible HTML is right here in the source.
